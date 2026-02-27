@@ -1,4 +1,5 @@
 const DB_NAME = 'notepad_mvp_db';
+// Keep DB schema at v3 to include workspace settings and migration-safe store creation.
 const DB_VERSION = 3;
 let db;
 let clockTimer = null;
@@ -82,9 +83,17 @@ async function getCurrentWorkspace() {
   if (!state.workspaceId) await activeWorkspace();
   let ws = state.workspaceId ? await get('workspaces', state.workspaceId) : null;
   if (!ws) {
-    await ensureSeed();
-    await activeWorkspace();
-    ws = state.workspaceId ? await get('workspaces', state.workspaceId) : null;
+    const workspaces = await getAll('workspaces');
+    const fallback = workspaces[0] || null;
+    if (fallback) {
+      state.workspaceId = fallback.id;
+      await put('meta', { key: 'activeWorkspaceId', value: fallback.id });
+      ws = fallback;
+    } else {
+      await ensureSeed();
+      await activeWorkspace();
+      ws = state.workspaceId ? await get('workspaces', state.workspaceId) : null;
+    }
   }
   if (!ws) return { id: null, name: 'Workspace', settings: { ...DEFAULT_WORKSPACE_SETTINGS } };
   if (!ws.settings) ws.settings = { ...DEFAULT_WORKSPACE_SETTINGS };
@@ -101,6 +110,7 @@ function toLocalDateTimeValue(value) {
 
 async function updateWorkspaceSettings(patch) {
   const ws = await getCurrentWorkspace();
+  if (!ws.id) return;
   ws.settings = { ...ws.settings, ...patch };
   await put('workspaces', ws);
   await renderWorkspaces();
@@ -620,9 +630,11 @@ async function bindUI() {
     await renderTree();
     await renderLinkedNoteOptions();
     await renderTodayPanel();
+    await renderCalendar();
   };
   $('renameWorkspaceBtn').onclick = async () => {
     const ws = await getCurrentWorkspace();
+    if (!ws.id) return;
     ws.name = prompt('Rename workspace', ws.name) || ws.name;
     await put('workspaces', ws);
     await renderWorkspaces();
@@ -638,6 +650,7 @@ async function bindUI() {
     await renderTree();
     await renderLinkedNoteOptions();
     await renderTodayPanel();
+    await renderCalendar();
   };
   $('workspaceSelect').onchange = async (e) => {
     state.workspaceId = e.target.value;
