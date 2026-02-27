@@ -1,4 +1,5 @@
 const DB_NAME = 'notepad_mvp_db';
+// Keep DB schema at v3 to include workspace settings and migration-safe store creation.
 const DB_VERSION = 3;
 let db;
 let clockTimer = null;
@@ -629,6 +630,7 @@ async function bindUI() {
     await renderTree();
     await renderLinkedNoteOptions();
     await renderTodayPanel();
+    await renderCalendar();
   };
   $('renameWorkspaceBtn').onclick = async () => {
     const ws = await getCurrentWorkspace();
@@ -648,6 +650,7 @@ async function bindUI() {
     await renderTree();
     await renderLinkedNoteOptions();
     await renderTodayPanel();
+    await renderCalendar();
   };
   $('workspaceSelect').onchange = async (e) => {
     state.workspaceId = e.target.value;
