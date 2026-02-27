@@ -73,15 +73,30 @@ async function ensureSeed() {
 async function activeWorkspace() {
   const m = await get('meta', 'activeWorkspaceId');
   const workspaces = await getAll('workspaces');
-  state.workspaceId = m?.value || workspaces[0]?.id;
-  if (!m?.value && state.workspaceId) await put('meta', { key: 'activeWorkspaceId', value: state.workspaceId });
+  const hasStoredWorkspace = workspaces.some((ws) => ws.id === m?.value);
+  state.workspaceId = hasStoredWorkspace ? m.value : workspaces[0]?.id;
+  if (state.workspaceId && m?.value !== state.workspaceId) await put('meta', { key: 'activeWorkspaceId', value: state.workspaceId });
 }
 
 async function getCurrentWorkspace() {
-  const ws = await get('workspaces', state.workspaceId);
+  if (!state.workspaceId) await activeWorkspace();
+  let ws = state.workspaceId ? await get('workspaces', state.workspaceId) : null;
+  if (!ws) {
+    await ensureSeed();
+    await activeWorkspace();
+    ws = state.workspaceId ? await get('workspaces', state.workspaceId) : null;
+  }
+  if (!ws) return { id: null, name: 'Workspace', settings: { ...DEFAULT_WORKSPACE_SETTINGS } };
   if (!ws.settings) ws.settings = { ...DEFAULT_WORKSPACE_SETTINGS };
   ws.settings = { ...DEFAULT_WORKSPACE_SETTINGS, ...ws.settings };
   return ws;
+}
+
+function toLocalDateTimeValue(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 async function updateWorkspaceSettings(patch) {
@@ -449,8 +464,8 @@ async function renderTodayPanel() {
     d.querySelector("button[data-a='edit']").onclick = () => {
       state.editEventId = ev.id;
       $('eventTitle').value = ev.title;
-      $('eventStart').value = new Date(ev.start).toISOString().slice(0, 16);
-      $('eventEnd').value = new Date(ev.end).toISOString().slice(0, 16);
+      $('eventStart').value = toLocalDateTimeValue(ev.start);
+      $('eventEnd').value = toLocalDateTimeValue(ev.end);
       $('eventNoteLink').value = ev.noteId || '';
       $('addEventBtn').textContent = 'Update Event';
     };
