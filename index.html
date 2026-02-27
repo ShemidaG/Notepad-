@@ -54,14 +54,34 @@
     <aside class="right">
       <div class="section-title">Calendar</div>
       <div class="row"><button id="prevMonth">◀</button><div id="monthLabel"></div><button id="nextMonth">▶</button></div>
+      <div id="weekdayHeader"></div>
       <div id="calendar"></div>
       <button id="todayBtn">Go to Today</button>
 
       <div class="section-title">Today Panel</div>
       <div class="row"><input id="taskTitle" placeholder="Task title" /><button id="addTaskBtn">Add</button></div>
-      <div class="row small"><select id="recurType"><option value="none">No recurrence</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select><input id="recurParam" placeholder="weekly:1,3 or monthly:15" /></div>
+      <div class="row small">
+        <select id="recurType">
+          <option value="none">No recurrence</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+        <input id="recurParam" placeholder="Monthly day (e.g. 15)" />
+      </div>
+      <div class="row small" id="weeklyOptionsWrap">
+        <select id="weeklyPreset">
+          <option value="all">Every day</option>
+          <option value="weekdays">Weekdays</option>
+          <option value="weekends">Weekends</option>
+          <option value="custom">Custom days</option>
+        </select>
+      </div>
+      <div class="row day-pills" id="weeklyDaysWrap"></div>
+      <div class="row small"><label>Link task to note</label><select id="taskNoteLink"><option value="">None</option></select></div>
       <div class="row"><input id="eventTitle" placeholder="Event title" /><button id="addEventBtn">Event</button></div>
       <div class="row small"><input id="eventStart" type="datetime-local" /><input id="eventEnd" type="datetime-local" /></div>
+      <div class="row small"><label>Link event to note</label><select id="eventNoteLink"><option value="">None</option></select></div>
       <div id="todayItems"></div>
     </aside>
   </main>

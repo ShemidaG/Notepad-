@@ -1,5 +1,5 @@
 const DB_NAME = 'notepad_mvp_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let db;
 const state = { workspaceId: null, selectedNoteId: null, selectedDate: new Date(), calendarMonth: new Date(), importData: null };
 
@@ -9,18 +9,39 @@ const uid = () => crypto.randomUUID();
 const dateOnly = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const isoDate = (d) => dateOnly(d).toISOString();
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKLY_PRESETS = {
+  all: [0, 1, 2, 3, 4, 5, 6],
+  weekdays: [1, 2, 3, 4, 5],
+  weekends: [0, 6],
+};
+
+function getWeekPreset(days = []) {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const match = (presetDays) => sorted.length === presetDays.length && presetDays.every((d, idx) => d === sorted[idx]);
+  if (match(WEEKLY_PRESETS.all)) return 'all';
+  if (match(WEEKLY_PRESETS.weekdays)) return 'weekdays';
+  if (match(WEEKLY_PRESETS.weekends)) return 'weekends';
+  return 'custom';
+}
+
+function taskDateHasItem(targetDate, tasks, events) {
+  return tasks.some((t) => recurrenceMatches(t, targetDate))
+    || events.some((ev) => isoDate(new Date(ev.start)) === isoDate(targetDate));
+}
+
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('workspaces', { keyPath: 'id' });
-      db.createObjectStore('folders', { keyPath: 'id' });
-      db.createObjectStore('notes', { keyPath: 'id' });
-      db.createObjectStore('tasks', { keyPath: 'id' });
-      db.createObjectStore('events', { keyPath: 'id' });
-      db.createObjectStore('images', { keyPath: 'id' });
-      db.createObjectStore('meta', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('workspaces')) db.createObjectStore('workspaces', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('tasks')) db.createObjectStore('tasks', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('events')) db.createObjectStore('events', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -58,28 +79,32 @@ async function renderWorkspaces() {
 async function renderTree() {
   const folders = (await getAll('folders')).filter(f => f.workspaceId === state.workspaceId).sort((a,b)=>a.order-b.order);
   const notes = (await getAll('notes')).filter(n => n.workspaceId === state.workspaceId).sort((a,b)=>(a.order||0)-(b.order||0));
+  const collapsedMap = (await get('meta', 'collapsedFolders'))?.value || {};
   const root = $('tree'); root.innerHTML = '';
 
   const makeNote = (n, depth=0) => {
-    const d=document.createElement('div'); d.className='item indent'.repeat(depth?1:0); d.style.marginLeft = `${depth*16}px`;
+    const d=document.createElement('div'); d.className='item note-item'; d.style.marginLeft = `${depth*16}px`;
     d.draggable = true; d.dataset.type='note'; d.dataset.id=n.id; if (n.id===state.selectedNoteId) d.classList.add('selected');
-    d.innerHTML=`<span>📝 ${n.title||'Untitled'}</span><span><button data-a='rn'>✎</button><button data-a='del'>🗑</button></span>`;
+    d.innerHTML=`<span class='item-label'>📝 ${n.title||'Untitled'}</span><span><button data-a='rn'>✎</button><button data-a='del'>🗑</button></span>`;
     d.onclick=(e)=>{ if(e.target.tagName==='BUTTON') return; selectNote(n.id); };
-    d.querySelector("button[data-a='rn']").onclick=async()=>{n.title=prompt('Rename note',n.title)||n.title;await put('notes',n);renderTree();};
-    d.querySelector("button[data-a='del']").onclick=async()=>{if(confirm('Delete note?')){await del('notes',n.id); if(state.selectedNoteId===n.id){state.selectedNoteId=null; $('editor').innerHTML='';$('noteTitle').value='';} renderTree();}};
+    d.querySelector("button[data-a='rn']").onclick=async()=>{n.title=prompt('Rename note',n.title)||n.title;await put('notes',n);renderTree(); await renderLinkedNoteOptions();};
+    d.querySelector("button[data-a='del']").onclick=async()=>{if(confirm('Delete note?')){await del('notes',n.id); if(state.selectedNoteId===n.id){state.selectedNoteId=null; $('editor').innerHTML='';$('noteTitle').value='';} renderTree(); await renderLinkedNoteOptions();}};
     attachDnD(d);
     return d;
   };
 
   const renderFolder = (f, depth=0) => {
-    const d=document.createElement('div'); d.className='item'; d.style.marginLeft=`${depth*16}px`; d.draggable=true; d.dataset.type='folder'; d.dataset.id=f.id;
-    d.innerHTML=`<span>📁 ${f.name}</span><span><button data-a='addn'>+N</button><button data-a='addf'>+F</button><button data-a='rn'>✎</button><button data-a='del'>🗑</button></span>`;
+    const collapsed = Boolean(collapsedMap[f.id]);
+    const d=document.createElement('div'); d.className='item folder-item'; d.style.marginLeft=`${depth*16}px`; d.draggable=true; d.dataset.type='folder'; d.dataset.id=f.id;
+    d.innerHTML=`<span class='item-label'><button class='collapse-btn' data-a='toggle'>${collapsed ? '▸' : '▾'}</button> 📁 ${f.name}</span><span><button data-a='addn'>+N</button><button data-a='addf'>+F</button><button data-a='rn'>✎</button><button data-a='del'>🗑</button></span>`;
+    d.querySelector("button[data-a='toggle']").onclick=async(e)=>{e.stopPropagation(); collapsedMap[f.id]=!collapsed; await put('meta',{key:'collapsedFolders',value:collapsedMap}); renderTree();};
     d.querySelector("button[data-a='addn']").onclick=()=>createNote(f.id);
     d.querySelector("button[data-a='addf']").onclick=()=>createFolder(f.id);
     d.querySelector("button[data-a='rn']").onclick=async()=>{f.name=prompt('Rename folder',f.name)||f.name;await put('folders',f);renderTree();};
-    d.querySelector("button[data-a='del']").onclick=async()=>{if(confirm('Delete folder and children?')) await deleteFolderCascade(f.id); renderTree();};
+    d.querySelector("button[data-a='del']").onclick=async()=>{if(confirm('Delete folder and children?')) await deleteFolderCascade(f.id); renderTree(); await renderLinkedNoteOptions();};
     attachDnD(d);
     root.appendChild(d);
+    if (collapsed) return;
     notes.filter(n=>n.folderId===f.id).forEach(n=>root.appendChild(makeNote(n,depth+1)));
     folders.filter(c=>c.parentFolderId===f.id).forEach(c=>renderFolder(c, depth+1));
   };
@@ -112,7 +137,7 @@ async function deleteFolderCascade(folderId){
 }
 
 async function createFolder(parentFolderId=null){ const name=prompt('Folder name','New Folder'); if(!name) return; await put('folders',{id:uid(),workspaceId:state.workspaceId,parentFolderId,name,order:Date.now()}); renderTree(); }
-async function createNote(folderId=null){ const title=prompt('Note title','Untitled')||'Untitled'; const n={id:uid(),workspaceId:state.workspaceId,folderId,title,content:'',bannerImageId:null,updatedAt:Date.now(),order:Date.now()}; await put('notes',n); state.selectedNoteId=n.id; await renderTree(); await selectNote(n.id); }
+async function createNote(folderId=null){ const title=prompt('Note title','Untitled')||'Untitled'; const n={id:uid(),workspaceId:state.workspaceId,folderId,title,content:'',bannerImageId:null,updatedAt:Date.now(),order:Date.now()}; await put('notes',n); state.selectedNoteId=n.id; await renderTree(); await renderLinkedNoteOptions(); await selectNote(n.id); }
 
 async function selectNote(id){
   state.selectedNoteId=id;
@@ -167,19 +192,79 @@ async function insertImage(file){
 function recurrenceMatches(task, date){
   const due = new Date(task.dueDate); const d = dateOnly(date);
   if (task.recurrence?.type === 'daily') return d >= dateOnly(due);
-  if (task.recurrence?.type === 'weekly') { const days = task.recurrence.days || []; return d >= dateOnly(due) && days.includes(d.getDay()); }
+  if (task.recurrence?.type === 'weekly') {
+    const days = task.recurrence.days?.length ? task.recurrence.days : [new Date(task.dueDate).getDay()];
+    return d >= dateOnly(due) && days.includes(d.getDay());
+  }
   if (task.recurrence?.type === 'monthly') return d >= dateOnly(due) && d.getDate() === task.recurrence.day;
   return isoDate(due)===isoDate(d);
 }
 
+async function renderLinkedNoteOptions(){
+  const notes=(await getAll('notes')).filter(n=>n.workspaceId===state.workspaceId).sort((a,b)=>(a.title||'').localeCompare(b.title||''));
+  const taskSel=$('taskNoteLink');
+  const eventSel=$('eventNoteLink');
+  [taskSel,eventSel].forEach(sel=>{
+    const existing=sel.value;
+    sel.innerHTML="<option value=''>None</option>";
+    notes.forEach(n=>{
+      const o=document.createElement('option');
+      o.value=n.id;
+      o.textContent=n.title||'Untitled';
+      if(existing===n.id) o.selected=true;
+      sel.appendChild(o);
+    });
+  });
+}
+
+function renderWeekdayHeader(){
+  const wrap=$('weekdayHeader');
+  wrap.innerHTML='';
+  WEEKDAY_LABELS.forEach(day=>{
+    const cell=document.createElement('div');
+    cell.className='weekday-cell';
+    cell.textContent=day;
+    wrap.appendChild(cell);
+  });
+}
+
+function setWeeklyCustomVisibility(){
+  const isWeekly=$('recurType').value==='weekly';
+  const isCustom=$('weeklyPreset').value==='custom';
+  $('weeklyOptionsWrap').style.display=isWeekly?'flex':'none';
+  $('weeklyDaysWrap').style.display=isWeekly&&isCustom?'flex':'none';
+  $('recurParam').style.display=$('recurType').value==='monthly'?'block':'none';
+}
+
+function renderWeeklyPills(selectedDays = []){
+  const wrap=$('weeklyDaysWrap');
+  wrap.innerHTML='';
+  WEEKDAY_LABELS.forEach((day, idx)=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='day-pill';
+    btn.dataset.day=String(idx);
+    btn.textContent=day;
+    if(selectedDays.includes(idx)) btn.classList.add('active');
+    btn.onclick=()=>{
+      btn.classList.toggle('active');
+    };
+    wrap.appendChild(btn);
+  });
+}
+
 async function renderCalendar(){
+  const tasks=(await getAll('tasks')).filter(t=>t.workspaceId===state.workspaceId);
+  const events=(await getAll('events')).filter(ev=>ev.workspaceId===state.workspaceId);
   const d = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth(), 1);
   $('monthLabel').textContent = d.toLocaleString(undefined,{month:'long',year:'numeric'});
   const grid = $('calendar'); grid.innerHTML='';
   const start = d.getDay(); const days = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-  for(let i=0;i<start;i++){const e=document.createElement('div'); grid.appendChild(e);}
+  for(let i=0;i<start;i++){const e=document.createElement('div'); e.className='day blank'; grid.appendChild(e);}
   for(let i=1;i<=days;i++){
-    const day = new Date(d.getFullYear(), d.getMonth(), i); const cell=document.createElement('div'); cell.className='day'; cell.textContent=i;
+    const day = new Date(d.getFullYear(), d.getMonth(), i); const cell=document.createElement('div'); cell.className='day';
+    const hasItem=taskDateHasItem(day,tasks,events);
+    cell.innerHTML=`<span class='day-number'>${i}</span>${hasItem?"<span class='day-dot'></span>":''}`;
     if(isoDate(day)===isoDate(new Date())) cell.classList.add('today');
     if(isoDate(day)===isoDate(state.selectedDate)) cell.classList.add('active');
     cell.onclick=()=>{state.selectedDate=day;renderCalendar();renderTodayPanel();};
@@ -188,11 +273,31 @@ async function renderCalendar(){
 }
 
 async function renderTodayPanel(){
+  const noteMap = new Map((await getAll('notes')).map(n => [n.id, n]));
   const tasks=(await getAll('tasks')).filter(t=>t.workspaceId===state.workspaceId && recurrenceMatches(t,state.selectedDate));
   const events=(await getAll('events')).filter(ev=>ev.workspaceId===state.workspaceId && isoDate(new Date(ev.start))===isoDate(state.selectedDate));
   const box=$('todayItems'); box.innerHTML='';
-  tasks.forEach(t=>{const d=document.createElement('div'); d.className='item task'+(t.completed?' done':''); d.innerHTML=`<input type='checkbox' ${t.completed?'checked':''}/> ${t.title} <button>🗑</button>`; d.querySelector('input').onchange=async(e)=>{t.completed=e.target.checked;t.updatedAt=Date.now();await put('tasks',t);renderTodayPanel();}; d.querySelector('button').onclick=async()=>{await del('tasks',t.id);renderTodayPanel();}; box.appendChild(d);});
-  events.forEach(ev=>{const d=document.createElement('div'); d.className='item'; d.innerHTML=`📅 ${ev.title} (${new Date(ev.start).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}-${new Date(ev.end).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}) <button>🗑</button>`; d.querySelector('button').onclick=async()=>{await del('events',ev.id);renderTodayPanel();}; box.appendChild(d);});
+  tasks.forEach(t=>{
+    const linked = t.noteId && noteMap.get(t.noteId);
+    const d=document.createElement('div');
+    d.className='item task'+(t.completed?' done':'');
+    d.innerHTML=`<input type='checkbox' ${t.completed?'checked':''}/> <span>${t.title}</span> ${linked?`<button data-note='${linked.id}' class='note-chip'>📝 ${linked.title||'Untitled'}</button>`:''} <button data-a='del'>🗑</button>`;
+    d.querySelector('input').onchange=async(e)=>{t.completed=e.target.checked;t.updatedAt=Date.now();await put('tasks',t);renderTodayPanel();renderCalendar();};
+    d.querySelector("button[data-a='del']").onclick=async()=>{await del('tasks',t.id);renderTodayPanel();renderCalendar();};
+    const nb=d.querySelector('.note-chip');
+    if(nb) nb.onclick=()=>selectNote(nb.dataset.note);
+    box.appendChild(d);
+  });
+  events.forEach(ev=>{
+    const linked = ev.noteId && noteMap.get(ev.noteId);
+    const d=document.createElement('div');
+    d.className='item';
+    d.innerHTML=`📅 ${ev.title} (${new Date(ev.start).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}-${new Date(ev.end).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}) ${linked?`<button data-note='${linked.id}' class='note-chip'>📝 ${linked.title||'Untitled'}</button>`:''} <button data-a='del'>🗑</button>`;
+    d.querySelector("button[data-a='del']").onclick=async()=>{await del('events',ev.id);renderTodayPanel();renderCalendar();};
+    const nb=d.querySelector('.note-chip');
+    if(nb) nb.onclick=()=>selectNote(nb.dataset.note);
+    box.appendChild(d);
+  });
 }
 
 async function exportAll(){
@@ -242,8 +347,14 @@ async function bindUI(){
   $('addWorkspaceBtn').onclick=async()=>{const name=prompt('Workspace name','Workspace'); if(!name) return; const ws={id:uid(),name,createdAt:Date.now()}; await put('workspaces',ws); state.workspaceId=ws.id; await put('meta',{key:'activeWorkspaceId',value:ws.id}); await renderWorkspaces(); renderTree(); renderTodayPanel();};
   $('renameWorkspaceBtn').onclick=async()=>{const ws=await get('workspaces',state.workspaceId); ws.name=prompt('Rename workspace',ws.name)||ws.name; await put('workspaces',ws); renderWorkspaces();};
   $('deleteWorkspaceBtn').onclick=async()=>{if(!confirm('Delete workspace and all data?')) return; const id=state.workspaceId; for(const s of ['folders','notes','tasks','events']) for(const i of await getAll(s)) if(i.workspaceId===id) await del(s,i.id); await del('workspaces',id); await activeWorkspace(); await renderWorkspaces(); await renderTree(); renderTodayPanel();};
-  $('workspaceSelect').onchange=async(e)=>{state.workspaceId=e.target.value; await put('meta',{key:'activeWorkspaceId',value:state.workspaceId}); state.selectedNoteId=null; await renderTree(); await renderTodayPanel();};
+  $('workspaceSelect').onchange=async(e)=>{state.workspaceId=e.target.value; await put('meta',{key:'activeWorkspaceId',value:state.workspaceId}); state.selectedNoteId=null; await renderTree(); await renderLinkedNoteOptions(); await renderCalendar(); await renderTodayPanel();};
   $('addFolderBtn').onclick=()=>createFolder(null); $('addNoteBtn').onclick=()=>createNote(null);
+  $('recurType').onchange=()=>setWeeklyCustomVisibility();
+  $('weeklyPreset').onchange=()=>{
+    setWeeklyCustomVisibility();
+    if ($('weeklyPreset').value !== 'custom') renderWeeklyPills(WEEKLY_PRESETS[$('weeklyPreset').value] || []);
+  };
+  renderWeeklyPills(WEEKLY_PRESETS.all);
   $('noteTitle').oninput=()=>setTimeout(saveCurrentNote,200);
   $('bannerInput').onchange=async(e)=>{if(!state.selectedNoteId||!e.target.files[0]) return; const imageId=uid(); await put('images',{id:imageId,blob:e.target.files[0],createdAt:Date.now()}); const n=await get('notes',state.selectedNoteId); n.bannerImageId=imageId; await put('notes',n); renderBanner(imageId); toast('Banner updated');};
   $('removeBannerBtn').onclick=async()=>{if(!state.selectedNoteId) return; const n=await get('notes',state.selectedNoteId); n.bannerImageId=null; await put('notes',n); renderBanner(null);};
@@ -252,21 +363,28 @@ async function bindUI(){
   $('prevMonth').onclick=()=>{state.calendarMonth.setMonth(state.calendarMonth.getMonth()-1);renderCalendar();};
   $('nextMonth').onclick=()=>{state.calendarMonth.setMonth(state.calendarMonth.getMonth()+1);renderCalendar();};
   $('todayBtn').onclick=()=>{state.selectedDate=new Date(); state.calendarMonth=new Date(); renderCalendar(); renderTodayPanel();};
+  setWeeklyCustomVisibility();
 
   $('addTaskBtn').onclick=async()=>{
     const title=$('taskTitle').value.trim(); if(!title) return;
     const type=$('recurType').value; let recurrence=null; const param=$('recurParam').value.trim();
     if(type==='daily') recurrence={type};
-    if(type==='weekly') recurrence={type,days:param.split(',').map(x=>Number(x.trim())).filter(x=>!Number.isNaN(x))};
+    if(type==='weekly') {
+      const preset=$('weeklyPreset').value;
+      const days = preset==='custom'
+        ? [...document.querySelectorAll('.day-pill.active')].map(el=>Number(el.dataset.day)).filter(n=>!Number.isNaN(n))
+        : (WEEKLY_PRESETS[preset] || [state.selectedDate.getDay()]);
+      recurrence={type,days:days.length?days:[state.selectedDate.getDay()]};
+    }
     if(type==='monthly') recurrence={type,day:Number(param)||state.selectedDate.getDate()};
-    await put('tasks',{id:uid(),workspaceId:state.workspaceId,title,dueDate:state.selectedDate.toISOString(),completed:false,recurrence,updatedAt:Date.now()});
-    $('taskTitle').value=''; renderTodayPanel();
+    await put('tasks',{id:uid(),workspaceId:state.workspaceId,title,dueDate:state.selectedDate.toISOString(),completed:false,recurrence,noteId:$('taskNoteLink').value||null,updatedAt:Date.now()});
+    $('taskTitle').value=''; renderTodayPanel(); renderCalendar();
   };
   $('addEventBtn').onclick=async()=>{
     const title=$('eventTitle').value.trim(); const start=$('eventStart').value; const end=$('eventEnd').value;
     if(!title||!start||!end) return toast('Event fields missing');
-    await put('events',{id:uid(),workspaceId:state.workspaceId,title,start:new Date(start).toISOString(),end:new Date(end).toISOString(),updatedAt:Date.now()});
-    $('eventTitle').value=''; renderTodayPanel();
+    await put('events',{id:uid(),workspaceId:state.workspaceId,title,start:new Date(start).toISOString(),end:new Date(end).toISOString(),noteId:$('eventNoteLink').value||null,updatedAt:Date.now()});
+    $('eventTitle').value=''; renderTodayPanel(); renderCalendar();
   };
   $('exportBtn').onclick=exportAll;
   $('importInput').onchange=async(e)=>{const file=e.target.files[0]; if(!file) return; state.importData=JSON.parse(await file.text()); $('importDialog').showModal();};
@@ -282,6 +400,8 @@ async function bindUI(){
   await bindUI();
   await renderWorkspaces();
   await renderTree();
+  await renderLinkedNoteOptions();
+  renderWeekdayHeader();
   await renderCalendar();
   await renderTodayPanel();
   toast('Ready');
