@@ -7,12 +7,13 @@
   <link rel="stylesheet" href="app/styles.css" />
 </head>
 <body>
+  <div id="appBackdrop"></div>
   <div id="toast"></div>
   <header>
     <h1>Notepad MVP</h1>
     <div class="row">
       <button id="exportBtn">Export JSON</button>
-      <label class="file-label">Import JSON<input id="importInput" type="file" accept="application/json" hidden /></label>
+      <label class="file-label" title="Import all app data">Import JSON<input id="importInput" type="file" accept="application/json" hidden /></label>
       <button id="searchToggle">Search</button>
     </div>
   </header>
@@ -21,12 +22,26 @@
       <div class="section-title">Workspaces</div>
       <div class="row">
         <select id="workspaceSelect"></select>
-        <button id="addWorkspaceBtn">+</button>
+        <button id="addWorkspaceBtn" title="Create workspace">+</button>
       </div>
       <div class="row">
         <button id="renameWorkspaceBtn">Rename</button>
         <button id="deleteWorkspaceBtn">Delete</button>
       </div>
+
+      <details id="workspaceSettings" open>
+        <summary>Workspace profile & theme</summary>
+        <div class="card">
+          <div class="row small"><label>Avatar</label><input id="workspaceAvatar" placeholder="🙂" maxlength="2" title="Emoji avatar" /></div>
+          <div class="row small"><label>Avatar image</label><label class="file-label">Upload<input id="workspaceAvatarUpload" type="file" accept="image/*" hidden /></label></div>
+          <div class="row small"><label>Font</label><select id="workspaceFont"><option value="Calibri, Segoe UI, Arial, sans-serif">Calibri</option><option value="Inter, Segoe UI, Arial, sans-serif">Inter</option><option value="Nunito, Segoe UI, Arial, sans-serif">Nunito</option><option value="Georgia, serif">Georgia</option></select></div>
+          <div class="row small"><label>Background</label><label class="file-label">Upload<input id="workspaceBgUpload" type="file" accept="image/*" hidden /></label></div>
+          <div class="row small"><label>Dim</label><input id="workspaceDim" type="range" min="0" max="0.85" step="0.05" /></div>
+          <div class="row small"><label><input id="workspaceBlurToggle" type="checkbox" /> Blur</label><input id="workspaceBlur" type="range" min="0" max="18" step="1" /></div>
+          <button id="clearWorkspaceBgBtn">Clear background</button>
+        </div>
+      </details>
+
       <div class="section-title">Folders & Notes</div>
       <div class="row">
         <button id="addFolderBtn">New Folder</button>
@@ -37,31 +52,52 @@
 
     <section class="center">
       <div id="bannerWrap"></div>
-      <div class="row sticky">
+      <div class="row sticky wrap">
         <input id="noteTitle" placeholder="Note title" />
-        <label class="file-label">Banner<input id="bannerInput" type="file" accept="image/*" hidden /></label>
+        <label class="file-label" title="Upload a banner image">Banner<input id="bannerInput" type="file" accept="image/*" hidden /></label>
+        <label title="Banner height">Height <input id="bannerHeight" type="range" min="120" max="320" step="10" /></label>
+        <label title="Move banner crop vertically">Position <input id="bannerPosition" type="range" min="0" max="100" step="1" /></label>
         <button id="removeBannerBtn">Remove Banner</button>
       </div>
       <div class="toolbar">
-        <button data-cmd="bold">B</button><button data-cmd="italic">I</button><button data-cmd="underline">U</button><button data-cmd="strikeThrough">S</button>
+        <button data-cmd="bold" title="Bold">B</button><button data-cmd="italic" title="Italic">I</button><button data-cmd="underline" title="Underline">U</button><button data-cmd="strikeThrough" title="Strikethrough">S</button>
         <button data-block="H1">H1</button><button data-block="H2">H2</button><button data-block="H3">H3</button>
-        <button id="checkboxBtn">☑</button>
+        <button id="checkboxBtn" title="Insert checklist item">☑</button>
+        <select id="editorFont" title="Font family"><option value="Calibri">Calibri</option><option value="Inter">Inter</option><option value="Nunito">Nunito</option><option value="Georgia">Georgia</option></select>
+        <label class="compact">Text <input id="textColor" type="color" value="#4f2540" /></label>
+        <label class="compact">Highlight <input id="highlightColor" type="color" value="#ffe066" /></label>
+        <button id="applyTextColorBtn">Apply color</button>
+        <button id="applyHighlightBtn">Highlight</button>
         <label class="file-label">Insert Image<input id="imageInput" type="file" accept="image/*" hidden /></label>
       </div>
       <div id="editor" contenteditable="true"></div>
     </section>
 
     <aside class="right">
+      <div class="section-title">Clock</div>
+      <div class="card">
+        <div id="clockTime">--:--:--</div>
+        <div class="row small"><label>Timezone</label><select id="clockTimezone"></select></div>
+        <div class="row small"><label><input id="clock24" type="checkbox" /> 24-hour format</label></div>
+      </div>
+
       <div class="section-title">Calendar</div>
       <div class="row"><button id="prevMonth">◀</button><div id="monthLabel"></div><button id="nextMonth">▶</button></div>
+      <div id="weekdayHeader"></div>
       <div id="calendar"></div>
       <button id="todayBtn">Go to Today</button>
 
       <div class="section-title">Today Panel</div>
-      <div class="row"><input id="taskTitle" placeholder="Task title" /><button id="addTaskBtn">Add</button></div>
-      <div class="row small"><select id="recurType"><option value="none">No recurrence</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select><input id="recurParam" placeholder="weekly:1,3 or monthly:15" /></div>
-      <div class="row"><input id="eventTitle" placeholder="Event title" /><button id="addEventBtn">Event</button></div>
+      <div class="row"><input id="taskTitle" placeholder="Task title" /><button id="addTaskBtn">Save Task</button></div>
+      <div class="row small"><label>Recurrence</label><select id="recurType"><option value="none">None</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+      <div class="row day-pills" id="weeklyDaysWrap"></div>
+      <div class="row small" id="weeklyQuickWrap"><button type="button" id="weekdaysBtn">Weekdays</button><button type="button" id="weekendsBtn">Weekends</button><button type="button" id="clearWeeklyBtn">Clear</button></div>
+      <div class="row small" id="monthlyWrap"><label>Day of month</label><input id="monthlyDay" type="number" min="1" max="31" /></div>
+      <div class="row small"><label>Linked note</label><select id="taskNoteLink"><option value="">None</option></select></div>
+
+      <div class="row"><input id="eventTitle" placeholder="Event title" /><button id="addEventBtn">Save Event</button></div>
       <div class="row small"><input id="eventStart" type="datetime-local" /><input id="eventEnd" type="datetime-local" /></div>
+      <div class="row small"><label>Linked note</label><select id="eventNoteLink"><option value="">None</option></select></div>
       <div id="todayItems"></div>
     </aside>
   </main>

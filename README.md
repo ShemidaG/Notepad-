@@ -18,6 +18,18 @@ Open `http://localhost:3000`.
 - `app/main.js`: application logic (state, IndexedDB persistence, rendering, command palette, import/export).
 - `app/styles.css`: layout and component styling.
 
+
+## New Features
+
+- Responsive compact calendar in the right sidebar with weekday labels and per-day task/event dot indicators.
+- Collapsible folder tree with per-workspace persisted collapse/expand state (drag and drop still supported).
+- Workspace profile/theme settings: avatar emoji/image, app font selection, custom background image, dim slider, blur toggle/strength.
+- Notion-style banner controls per note: adjustable banner height and vertical position slider.
+- Live clock widget with timezone presets and 12/24-hour toggle, persisted per workspace.
+- Structured recurrence UI for tasks: none, daily, weekly (custom weekdays + quick weekdays/weekends), monthly date selection.
+- Linked note field for tasks/events, with clickable note chips in Today panel.
+- Editor toolbar upgrades: font family selector, text color, and highlight color while preserving existing formatting actions.
+
 ## Features Included
 
 - Workspaces: create/rename/delete/switch.
