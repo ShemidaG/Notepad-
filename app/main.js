@@ -618,6 +618,31 @@ function resetEventForm() {
 async function bindUI() {
   $('clockTimezone').innerHTML = CLOCK_TIMEZONES.map((x) => `<option value='${x.value}'>${x.label}</option>`).join('');
 
+  const savedLeftWidth = Number(localStorage.getItem('leftSidebarWidth') || 300);
+  document.documentElement.style.setProperty('--left-width', `${Math.max(200, Math.min(520, savedLeftWidth))}px`);
+  if (localStorage.getItem('leftSidebarCollapsed') === '1') document.body.classList.add('left-collapsed');
+
+  $('toggleLeftSidebar').onclick = () => {
+    document.body.classList.toggle('left-collapsed');
+    localStorage.setItem('leftSidebarCollapsed', document.body.classList.contains('left-collapsed') ? '1' : '0');
+  };
+
+  $('leftResizer').addEventListener('mousedown', (e) => {
+    if (document.body.classList.contains('left-collapsed')) return;
+    e.preventDefault();
+    const onMove = (ev) => {
+      const next = Math.max(200, Math.min(520, ev.clientX));
+      document.documentElement.style.setProperty('--left-width', `${next}px`);
+      localStorage.setItem('leftSidebarWidth', String(next));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
   $('addWorkspaceBtn').onclick = async () => {
     const name = prompt('Workspace name', 'Workspace');
     if (!name) return;

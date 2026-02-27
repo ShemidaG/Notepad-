@@ -15,10 +15,11 @@
       <button id="exportBtn">Export JSON</button>
       <label class="file-label" title="Import all app data">Import JSON<input id="importInput" type="file" accept="application/json" hidden /></label>
       <button id="searchToggle">Search</button>
+      <button id="toggleLeftSidebar" title="Collapse/expand left panel">Toggle Left</button>
     </div>
   </header>
   <main class="layout">
-    <aside class="left">
+    <aside class="left" id="leftSidebar">
       <div class="section-title">Workspaces</div>
       <div class="row">
         <select id="workspaceSelect"></select>
@@ -47,8 +48,10 @@
         <button id="addFolderBtn">New Folder</button>
         <button id="addNoteBtn">New Note</button>
       </div>
+      <p class="storage-note">Storage: your notes/tasks are saved locally in this browser (IndexedDB). Use Export JSON for backup to your laptop.</p>
       <div id="tree"></div>
     </aside>
+    <div id="leftResizer" aria-hidden="true"></div>
 
     <section class="center">
       <div id="bannerWrap"></div>
